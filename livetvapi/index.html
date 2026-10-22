@@ -77,25 +77,12 @@
             color: #00ff88;
             font-weight: 600;
         }
-        .server-hint {
-            margin-bottom: 14px;
-            padding: 8px 14px;
-            background: rgba(0, 255, 136, 0.1);
-            border: 1px solid rgba(0, 255, 136, 0.3);
-            border-radius: 6px;
-            font-size: 12px;
-            color: #00ff88;
-        }
     </style>
 </head>
 <body>
 
     <h1>📺 StreamX Universal Live TV API Player</h1>
-    <p class="subtitle">Direct Playback with Auto-Token & ClearKey DRM</p>
-
-    <div class="server-hint" id="serverNotice">
-        💡 Tip: For smooth streaming without browser CORS restrictions, run <code>start.bat</code> and open <code>http://localhost:3000</code>.
-    </div>
+    <p class="subtitle">Direct Playback with Auto-Token, ClearKey DRM & Local Tunnel</p>
 
     <div class="player-container">
         <video id="video" controls autoplay playsinline></video>
@@ -149,11 +136,12 @@
                 document.getElementById('nowPlaying').innerHTML = `⚠️ Playback error (${e.detail ? e.detail.code : 'Stream offline'}).`;
             });
 
-            // Register Request Filter to attach Jio token
+            // Register Request Filter to attach Jio token and route external streams through server proxy
             player.getNetworkingEngine().registerRequestFilter((type, req) => {
                 let u = req.uris[0];
                 if (!u) return;
 
+                // Attach Jio Token
                 const isJio = u.includes('jio.com') || u.includes('jiocinema') || (u.includes('bpk-tv') && u.includes('akamaized.net'));
                 if (isJio && activeJioCookie) {
                     const tokenVal = activeJioCookie.replace(/^__hdnea__=/, '').replace(/^hdnea=/, '');
@@ -164,13 +152,18 @@
                     }
                     req.uris[0] = u;
                 }
+
+                // If running on local server and URL is from Astro or blocked CDN, use local /api/proxy
+                if (window.location.protocol.startsWith('http') && (u.includes('astro.com.my') || u.includes('akamaized.net'))) {
+                    if (!u.includes('/api/proxy?url=')) {
+                        req.uris[0] = '/api/proxy?url=' + encodeURIComponent(u);
+                    }
+                }
             });
 
-            // Fetch Token & API in parallel
             fetchLatestCookie();
 
             try {
-                // If loaded via server use local file, else use jsdelivr CDN
                 const isHttp = window.location.protocol.startsWith('http');
                 const apiURL = isHttp ? 'channels.json' : 'https://cdn.jsdelivr.net/gh/HackingNaruto/Api@main/livetvapi/channels.json';
                 const res = await fetch(apiURL);
@@ -179,7 +172,6 @@
                 
                 document.getElementById('stats').innerText = `Total Channels: ${data.total_channels} | Categories: ${data.categories.length}`;
                 
-                // Populate categories
                 const catSelect = document.getElementById('catSelect');
                 data.categories.forEach(cat => {
                     const opt = document.createElement('option');
@@ -188,10 +180,10 @@
                     catSelect.appendChild(opt);
                 });
 
-                if (data.categories.includes('Tamil')) {
-                    catSelect.value = 'Tamil';
-                } else if (data.categories.includes('Sony LIV')) {
+                if (data.categories.includes('Sony LIV')) {
                     catSelect.value = 'Sony LIV';
+                } else if (data.categories.includes('Tamil')) {
+                    catSelect.value = 'Tamil';
                 }
                 onCategoryChange();
 
@@ -233,7 +225,6 @@
 
             document.getElementById('nowPlaying').innerHTML = `▶ Now Playing: <b>${ch.name}</b> <span class="badge">${ch.category}</span> ${ch.drm ? '<span class="badge">DRM Decrypted</span>' : ''}`;
 
-            // Configure ClearKey DRM
             const config = {
                 drm: {},
                 manifest: {
@@ -251,7 +242,8 @@
             player.configure(config);
 
             try {
-                await player.load(ch.url);
+                let streamUrl = ch.url;
+                await player.load(streamUrl);
                 console.log('Successfully loaded stream:', ch.name);
             } catch (err) {
                 console.warn('Load attempt failed:', err);
@@ -264,7 +256,7 @@
                         console.warn('Fallback also failed:', fbErr);
                     }
                 }
-                document.getElementById('nowPlaying').innerHTML = `⚠️ Failed to play ${ch.name} (Offline or CORS restricted).`;
+                document.getElementById('nowPlaying').innerHTML = `⚠️ Failed to play ${ch.name} (Offline or restricted).`;
             }
         }
 
