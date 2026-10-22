@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamX Live TV API Tester</title>
+    <!-- Shaka Player CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body { background: #0f1015; color: #fff; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        h1 { margin-bottom: 8px; color: #00ff88; font-size: 24px; }
+        p.subtitle { color: #888; font-size: 14px; margin-bottom: 20px; }
+        
+        .player-container {
+            width: 100%;
+            max-width: 860px;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            border: 1px solid #222;
+        }
+        video {
+            width: 100%;
+            height: 480px;
+            display: block;
+            background: #000;
+        }
+        .controls {
+            padding: 16px;
+            background: #181a20;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            border-top: 1px solid #222;
+        }
+        select, input {
+            padding: 10px 14px;
+            background: #232733;
+            color: #fff;
+            border: 1px solid #3a3f50;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+        select:focus, input:focus { border-color: #00ff88; }
+        #catSelect { width: 160px; }
+        #chSelect { flex: 1; min-width: 200px; }
+        #nowPlaying {
+            margin-top: 10px;
+            width: 100%;
+            font-size: 13px;
+            color: #00ff88;
+            font-weight: 500;
+        }
+        .stats {
+            margin-top: 16px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📺 StreamX Live TV API - Instant Tester</h1>
+    <p class="subtitle">Fetching all channels live from your <code>livetvapi/channels.json</code> endpoint</p>
+
+    <div class="player-container">
+        <video id="video" controls autoplay playsinline></video>
+        <div class="controls">
+            <select id="catSelect" onchange="onCategoryChange()">
+                <option value="All">All Categories</option>
+            </select>
+
+            <select id="chSelect" onchange="onChannelChange()">
+                <option value="">Loading channels...</option>
+            </select>
+
+            <div id="nowPlaying">Connecting to Live API...</div>
+        </div>
+    </div>
+
+    <div class="stats" id="stats">Channels Loaded: 0</div>
+
+    <script>
+        let allChannels = [];
+        let player = null;
+
+        async function init() {
+            shaka.polyfill.installAll();
+            if (!shaka.Player.isBrowserSupported()) {
+                alert('Browser not supported for DASH/HLS playback');
+                return;
+            }
+
+            const video = document.getElementById('video');
+            player = new shaka.Player(video);
+
+            player.addEventListener('error', (e) => {
+                console.error('Shaka Error:', e.detail);
+                document.getElementById('nowPlaying').innerText = 'Playback Error: ' + (e.detail ? e.detail.message || e.detail.code : 'Stream error');
+            });
+
+            // Fetch Live TV API
+            try {
+                const apiURL = 'https://cdn.jsdelivr.net/gh/HackingNaruto/Api@main/livetvapi/channels.json';
+                const res = await fetch(apiURL);
+                const data = await res.json();
+                allChannels = data.channels || [];
+                
+                document.getElementById('stats').innerText = `Total Channels: ${data.total_channels} | Categories: ${data.categories.length}`;
+                
+                // Populate categories
+                const catSelect = document.getElementById('catSelect');
+                data.categories.forEach(cat => {
+                    const opt = document.createElement('option');
+                    opt.value = cat;
+                    opt.innerText = cat;
+                    catSelect.appendChild(opt);
+                });
+
+                // Default to Tamil or first category
+                if (data.categories.includes('Tamil')) {
+                    catSelect.value = 'Tamil';
+                }
+                onCategoryChange();
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('nowPlaying').innerText = 'API Fetch Failed. Check console.';
+            }
+        }
+
+        function onCategoryChange() {
+            const cat = document.getElementById('catSelect').value;
+            const chSelect = document.getElementById('chSelect');
+            chSelect.innerHTML = '';
+
+            const filtered = (cat === 'All') 
+                ? allChannels 
+                : allChannels.filter(c => c.category === cat);
+
+            filtered.forEach((c, idx) => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.innerText = `${c.name} ${c.drm ? '🔒 [DRM]' : ''}`;
+                chSelect.appendChild(opt);
+            });
+
+            if (filtered.length > 0) {
+                playChannelById(filtered[0].id);
+            }
+        }
+
+        function onChannelChange() {
+            const id = document.getElementById('chSelect').value;
+            playChannelById(id);
+        }
+
+        async function playChannelById(id) {
+            const ch = allChannels.find(c => c.id === id);
+            if (!ch) return;
+
+            document.getElementById('nowPlaying').innerText = `▶ Now Playing: ${ch.name} (${ch.category}) ${ch.drm ? '• ClearKey DRM Loaded' : ''}`;
+
+            // Configure ClearKey DRM if present
+            const config = { drm: {} };
+            if (ch.drm && ch.drm.clearKeys) {
+                config.drm.clearKeys = ch.drm.clearKeys;
+            }
+            player.configure(config);
+
+            try {
+                await player.load(ch.url);
+                console.log('Playing:', ch.name);
+            } catch (err) {
+                console.error('Load failed:', err);
+                document.getElementById('nowPlaying').innerText = `⚠️ Failed to play ${ch.name} (Source might be offline or geo-restricted)`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
