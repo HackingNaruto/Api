@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 3000;
+const PORT = 8080;
 const ROOT = __dirname;
 
 const MIME = {
@@ -47,6 +47,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
     console.log(`\n=================================================`);
     console.log(`🚀 Live TV API Local Tester Server is RUNNING!`);
-    console.log(`👉 Open: http://localhost:${PORT}`);
+    console.log(`👉 Open in Browser: http://localhost:${PORT}`);
     console.log(`=================================================\n`);
 });
