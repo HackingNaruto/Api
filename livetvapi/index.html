@@ -82,7 +82,7 @@
 <body>
 
     <h1>📺 StreamX Universal Live TV API Player</h1>
-    <p class="subtitle">Direct Playback with Auto-Token, ClearKey DRM & Local Tunnel</p>
+    <p class="subtitle">Direct Playback with Auto-Token, ClearKey DRM & BaseURL Resolver</p>
 
     <div class="player-container">
         <video id="video" controls autoplay playsinline></video>
@@ -136,10 +136,15 @@
                 document.getElementById('nowPlaying').innerHTML = `⚠️ Playback error (${e.detail ? e.detail.code : 'Stream offline'}).`;
             });
 
-            // Register Request Filter to attach Jio token and route external streams through server proxy
+            // Register Request Filter
             player.getNetworkingEngine().registerRequestFilter((type, req) => {
                 let u = req.uris[0];
                 if (!u) return;
+
+                // Fix double-slashes
+                if (u.includes('.jio.com//')) {
+                    u = u.replace(/\.jio\.com\/+bpk-tv\//, '.jio.com/bpk-tv/');
+                }
 
                 // Attach Jio Token
                 const isJio = u.includes('jio.com') || u.includes('jiocinema') || (u.includes('bpk-tv') && u.includes('akamaized.net'));
@@ -153,7 +158,7 @@
                     req.uris[0] = u;
                 }
 
-                // If running on local server and URL is from Astro or blocked CDN, use local /api/proxy
+                // If running on local server and URL is from Astro or non-open CDN, proxy it
                 if (window.location.protocol.startsWith('http') && (u.includes('astro.com.my') || u.includes('akamaized.net'))) {
                     if (!u.includes('/api/proxy?url=')) {
                         req.uris[0] = '/api/proxy?url=' + encodeURIComponent(u);
@@ -180,10 +185,10 @@
                     catSelect.appendChild(opt);
                 });
 
-                if (data.categories.includes('Sony LIV')) {
-                    catSelect.value = 'Sony LIV';
-                } else if (data.categories.includes('Tamil')) {
+                if (data.categories.includes('Tamil')) {
                     catSelect.value = 'Tamil';
+                } else if (data.categories.includes('Sony LIV')) {
+                    catSelect.value = 'Sony LIV';
                 }
                 onCategoryChange();
 
@@ -243,6 +248,10 @@
 
             try {
                 let streamUrl = ch.url;
+                // If it's an external Astro or CDN stream on local server, proxy the manifest
+                if (window.location.protocol.startsWith('http') && (streamUrl.includes('astro.com.my') || streamUrl.includes('akamaized.net'))) {
+                    streamUrl = '/api/proxy?url=' + encodeURIComponent(streamUrl);
+                }
                 await player.load(streamUrl);
                 console.log('Successfully loaded stream:', ch.name);
             } catch (err) {
@@ -250,7 +259,11 @@
                 if (ch.fallback_urls && ch.fallback_urls.length > 0) {
                     try {
                         console.log('Trying fallback URL for:', ch.name);
-                        await player.load(ch.fallback_urls[0]);
+                        let fbUrl = ch.fallback_urls[0];
+                        if (window.location.protocol.startsWith('http') && (fbUrl.includes('astro.com.my') || fbUrl.includes('akamaized.net'))) {
+                            fbUrl = '/api/proxy?url=' + encodeURIComponent(fbUrl);
+                        }
+                        await player.load(fbUrl);
                         return;
                     } catch(fbErr) {
                         console.warn('Fallback also failed:', fbErr);
