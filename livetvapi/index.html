@@ -54,19 +54,6 @@
         select:focus { border-color: #00ff88; }
         #catSelect { width: 180px; }
         #chSelect { flex: 1; min-width: 220px; }
-        
-        .proxy-toggle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: #b0b8d1;
-            background: #1c2233;
-            padding: 8px 12px;
-            border-radius: 8px;
-            border: 1px solid #2e3852;
-        }
-        .proxy-toggle input { cursor: pointer; }
 
         #nowPlaying {
             font-size: 13px;
@@ -90,12 +77,25 @@
             color: #00ff88;
             font-weight: 600;
         }
+        .server-hint {
+            margin-bottom: 14px;
+            padding: 8px 14px;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 6px;
+            font-size: 12px;
+            color: #00ff88;
+        }
     </style>
 </head>
 <body>
 
     <h1>📺 StreamX Universal Live TV API Player</h1>
-    <p class="subtitle">Direct Playback with Auto-Token, ClearKey DRM & CORS Proxy Tunneling</p>
+    <p class="subtitle">Direct Playback with Auto-Token & ClearKey DRM</p>
+
+    <div class="server-hint" id="serverNotice">
+        💡 Tip: For smooth streaming without browser CORS restrictions, run <code>start.bat</code> and open <code>http://localhost:3000</code>.
+    </div>
 
     <div class="player-container">
         <video id="video" controls autoplay playsinline></video>
@@ -108,11 +108,6 @@
                 <select id="chSelect" onchange="onChannelChange()">
                     <option value="">Loading channels from API...</option>
                 </select>
-
-                <label class="proxy-toggle">
-                    <input type="checkbox" id="useProxy" checked>
-                    <span>CORS Tunnel Proxy</span>
-                </label>
             </div>
 
             <div id="nowPlaying">Connecting to Live TV API...</div>
@@ -125,12 +120,6 @@
         let allChannels = [];
         let player = null;
         let activeJioCookie = '';
-
-        // CORS Proxies for browser local playback
-        const PROXIES = [
-            'https://corsproxy.io/?url=',
-            'https://api.allorigins.win/raw?url='
-        ];
 
         async function fetchLatestCookie() {
             try {
@@ -157,15 +146,14 @@
 
             player.addEventListener('error', (e) => {
                 console.error('Shaka Playback Error:', e.detail);
-                document.getElementById('nowPlaying').innerHTML = `⚠️ Playback error (${e.detail ? e.detail.code : 'Stream offline'}). Try toggling CORS Proxy.`;
+                document.getElementById('nowPlaying').innerHTML = `⚠️ Playback error (${e.detail ? e.detail.code : 'Stream offline'}).`;
             });
 
-            // Register Request Filter to attach Jio token & proxy CORS requests
+            // Register Request Filter to attach Jio token
             player.getNetworkingEngine().registerRequestFilter((type, req) => {
                 let u = req.uris[0];
                 if (!u) return;
 
-                // Attach Jio Token if applicable
                 const isJio = u.includes('jio.com') || u.includes('jiocinema') || (u.includes('bpk-tv') && u.includes('akamaized.net'));
                 if (isJio && activeJioCookie) {
                     const tokenVal = activeJioCookie.replace(/^__hdnea__=/, '').replace(/^hdnea=/, '');
@@ -176,22 +164,15 @@
                     }
                     req.uris[0] = u;
                 }
-
-                // If CORS Proxy is enabled and it's an external stream (e.g. Astro / Sony / CDN without open CORS)
-                const useProxy = document.getElementById('useProxy').checked;
-                if (useProxy && !u.startsWith('data:') && !u.includes('corsproxy.io') && !u.includes('allorigins.win')) {
-                    const needsProxy = u.includes('astro.com.my') || u.includes('akamaized.net') || u.includes('jio.com');
-                    if (needsProxy) {
-                        req.uris[0] = PROXIES[0] + encodeURIComponent(u);
-                    }
-                }
             });
 
             // Fetch Token & API in parallel
             fetchLatestCookie();
 
             try {
-                const apiURL = 'https://cdn.jsdelivr.net/gh/HackingNaruto/Api@main/livetvapi/channels.json';
+                // If loaded via server use local file, else use jsdelivr CDN
+                const isHttp = window.location.protocol.startsWith('http');
+                const apiURL = isHttp ? 'channels.json' : 'https://cdn.jsdelivr.net/gh/HackingNaruto/Api@main/livetvapi/channels.json';
                 const res = await fetch(apiURL);
                 const data = await res.json();
                 allChannels = data.channels || [];
@@ -207,10 +188,10 @@
                     catSelect.appendChild(opt);
                 });
 
-                if (data.categories.includes('Sony LIV')) {
-                    catSelect.value = 'Sony LIV';
-                } else if (data.categories.includes('Tamil')) {
+                if (data.categories.includes('Tamil')) {
                     catSelect.value = 'Tamil';
+                } else if (data.categories.includes('Sony LIV')) {
+                    catSelect.value = 'Sony LIV';
                 }
                 onCategoryChange();
 
@@ -270,12 +251,10 @@
             player.configure(config);
 
             try {
-                let streamUrl = ch.url;
-                await player.load(streamUrl);
+                await player.load(ch.url);
                 console.log('Successfully loaded stream:', ch.name);
             } catch (err) {
                 console.warn('Load attempt failed:', err);
-                // Fallback attempt with fallback_urls if available
                 if (ch.fallback_urls && ch.fallback_urls.length > 0) {
                     try {
                         console.log('Trying fallback URL for:', ch.name);
@@ -285,7 +264,7 @@
                         console.warn('Fallback also failed:', fbErr);
                     }
                 }
-                document.getElementById('nowPlaying').innerHTML = `⚠️ Failed to play ${ch.name} (Source might be offline or blocked).`;
+                document.getElementById('nowPlaying').innerHTML = `⚠️ Failed to play ${ch.name} (Offline or CORS restricted).`;
             }
         }
 
